@@ -3,7 +3,7 @@ import { Program } from "@coral-xyz/anchor"
 import { assert, expect } from "chai"
 import fs from "fs"
 const idl = JSON.parse(fs.readFileSync("./target/idl/movie_review.json", "utf8"));
-
+import { getAssociatedTokenAddress, getAccount } from "@solana/spl-token"
 
 describe("anchor-movie-review-program", () => {
   // Configure the client to use the local cluster.
@@ -24,10 +24,34 @@ describe("anchor-movie-review-program", () => {
     programId
   )
 
-  it("Movie review is added`", async () => {
+  const [mint] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("mint")],
+    programId
+  )
+
+  it("Initializes the reward token", async () => {
+    const tx = await program.methods.initializeTokenMint().accounts({
+      mint: mint,
+    })
+    .rpc()
+    .catch(
+      (err) => { 
+        //console.log(err);
+        console.log("account Address already in use"); 
+      }
+    )
+  })
+
+  it("Movie review is added", async () => {
+    const tokenAccount = await getAssociatedTokenAddress(
+      mint,
+      provider.wallet.publicKey
+    )
     // Add your test here.
     const tx = await program.methods.addMovieReview(movie.title, movie.description, movie.rating).accounts({
-      movieReview: moviePda
+      movieReview: moviePda,
+      tokenAccount: tokenAccount,
+      mint: mint,
     }).rpc()
   
     const account = await program.account.movieAccountState.fetch(moviePda)
@@ -35,12 +59,15 @@ describe("anchor-movie-review-program", () => {
     expect(movie.title === account.title)
     expect(movie.rating === account.rating)
     expect(movie.description === account.description)
-    expect(account.reviewer === provider.wallet.publicKey)  
+    expect(account.reviewer === provider.wallet.publicKey)
+    
+    const userAta = await getAccount(provider.connection, tokenAccount)
+    console.log(userAta.amount)
   })
 
-  it("Movie review is updated`", async () => {
-    const newDescription = "Wow this is new"
-    const newRating = 4
+  it("Movie review is updated", async () => {
+    const newDescription = "Wow this is new";
+    const newRating = 5;
   
     const tx = await program.methods
       .updateMovieReview(movie.title, newDescription, newRating)
@@ -50,7 +77,7 @@ describe("anchor-movie-review-program", () => {
       .rpc()
   
     const account = await program.account.movieAccountState.fetch(moviePda)
-     expect(movie.title === account.title)
+    expect(movie.title === account.title)
     expect(newRating === account.rating)
     expect(newDescription === account.description)
     expect(account.reviewer === provider.wallet.publicKey)
